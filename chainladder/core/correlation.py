@@ -188,51 +188,89 @@ class ValuationCorrelation:
         lr = triangle.link_ratio
 
         # Rank link ratios for each column
-        m1 = xp.apply_along_axis(func1d=rankdata, axis=2, arr=lr.values) * (
-            lr.values * 0 + 1
-        )
+        rank = xp.apply_along_axis(
+            func1d=rankdata, axis=2, arr=lr.values, nan_policy="omit"
+        ) * (lr.values * 0 + 1)
+        print("rank:\n", rank)
 
-        med = xp.nanmedian(a=m1, axis=2, keepdims=True)
+        med = xp.nanmedian(a=rank, axis=2, keepdims=True)
+        print("med:\n", med)
 
-        m1large = (xp.nan_to_num(m1) > med) + (lr.values * 0)
-        m1small = (xp.nan_to_num(m1) < med) + (lr.values * 0)
+        large_ind = (xp.nan_to_num(rank) > med) + (lr.values * 0)
+        small_ind = (xp.nan_to_num(rank) < med) + (lr.values * 0)
+        print("large_ind:\n", large_ind)
+        print("small_ind:\n", small_ind)
+
         m2large = triangle.link_ratio
-        m2large.values = m1large
+        m2large.values = large_ind
         m2small = triangle.link_ratio
-        m2small.values = m1small
-        S = xp.nan_to_num(m2small.dev_to_val().sum(axis=2).set_backend("numpy").values)
+        m2small.values = small_ind
+        print("m2large:\n", m2large)
+        print("m2small:\n", m2small)
+
+        print("m2large.dev_to_val():\n", m2large.dev_to_val())
+        print("m2small.dev_to_val():\n", m2small.dev_to_val())
+        print("m2large.dev_to_val().sum(axis=2):\n", m2large.dev_to_val().sum(axis=2))
+        print("m2small.dev_to_val().sum(axis=2):\n", m2small.dev_to_val().sum(axis=2))
+
         L = xp.nan_to_num(m2large.dev_to_val().sum(axis=2).set_backend("numpy").values)
+        S = xp.nan_to_num(m2small.dev_to_val().sum(axis=2).set_backend("numpy").values)
+        # print("L:\n", L)
+        # print("S:\n", S)
+
         z = xp.minimum(L, S)
+        print("z:\n", z)
         n = L + S
         m = xp.floor((n - 1) / 2)
         c = comb(n - 1, m)
         EZ = (n / 2) - c * n / (2**n)
         VarZ = n * (n - 1) / 4 - c * n * (n - 1) / (2**n) + EZ - EZ**2
+
         if not self.total:
+            test_size = large_ind.shape[3]
+            print("no max:", large_ind.shape[3])
+            print("with max:", xp.max(large_ind.shape[2:]))
             T = []
-            for i in range(0, xp.max(m1large.shape[2:]) + 1):
-                T.append(
-                    [
-                        pZlower(i, j, 0.5)
-                        for j in range(0, xp.max(m1large.shape[2:]) + 1)
-                    ]
+            for i in range(0, large_ind.shape[3] + 1):
+                print(
+                    "Appending:\n",
+                    "i:",
+                    i,
+                    "item:",
+                    [pZlower(i, j, 0.5) for j in range(0, large_ind.shape[3] + 1)],
                 )
+                T.append([pZlower(i, j, 0.5) for j in range(0, large_ind.shape[3] + 1)])
             T = np.array(T)
+
             z_idx, n_idx = z.astype(int), n.astype(int)
             self.probs = T[z_idx, n_idx]
+            print("T:\n", T)
+            print("triangle:\n", triangle)
+
             z_critical = triangle[triangle.valuation > triangle.valuation.min()]
+            print("z_critical:\n", z_critical)
             # z_critical = z_critical[z_critical.development > z_critical.development.min()].dev_to_val().sum(
             #     "origin") * 0
             z_critical = z_critical.dev_to_val().dropna().sum("origin") * 0
+            print("z_critical original:", z_critical)
             z_critical.values = np.array(self.probs) < p_critical
+            print("z_critical.values:", z_critical.values)
             z_critical.odims = triangle.odims[0:1]
+            print("z_critical.odims:", z_critical.odims)
             self.z_critical = z_critical
+
             self.z = self.z_critical.copy()
             self.z.values = z
             self.z_expectation = self.z_critical.copy()
             self.z_expectation.values = EZ
+
             self.z_variance = self.z_critical.copy()
             self.z_variance.values = VarZ
+            print("z:", z)
+            print("z_critical:", z_critical)
+            print("z_expectation:", EZ)
+            print("z_variance:", VarZ)
+            print("END")
         else:
             ci2 = norm.ppf(0.5 - (1 - p_critical) / 2) * xp.sqrt(xp.sum(VarZ, axis=-1))
             self.range = (xp.sum(VarZ, axis=-1) + ci2, xp.sum(VarZ, axis=-1) - ci2)
